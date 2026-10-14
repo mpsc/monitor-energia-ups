@@ -1,0 +1,197 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor de Energia UPS</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; width: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f1419;
+    color: #e6e6e6;
+    display: grid;
+    place-items: center;
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: 20px;
+  }
+  .container {
+    width: 100%;
+    max-width: 520px;
+    background: #1a2028;
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    overflow: hidden;
+    align-self: center;
+    justify-self: center;
+  }
+  .header {
+    background: linear-gradient(135deg, #1e3a5f, #2d5a8c);
+    padding: 22px;
+    text-align: center;
+    position: relative;
+  }
+  .header h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: 0.5px; }
+  .header p { font-size: 0.78rem; opacity: 0.75; margin-top: 4px; }
+  .btn-config {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    text-decoration: none;
+    transition: background 0.2s;
+  }
+  .btn-config:hover { background: rgba(255,255,255,0.3); }
+  .status {
+    padding: 22px;
+    text-align: center;
+    font-size: 1.5rem;
+    font-weight: bold;
+    letter-spacing: 1px;
+    transition: all 0.3s ease;
+  }
+  .status.ok { background: #0d3d1f; color: #4ade80; border-bottom: 1px solid #166534; }
+  .status.off {
+    background: #3d0d0d;
+    color: #f87171;
+    border-bottom: 1px solid #991b1b;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+  .valores {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: #2a3340;
+  }
+  .card { background: #1a2028; padding: 24px 16px; text-align: center; }
+  .card .label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #8b96a5;
+    margin-bottom: 8px;
+  }
+  .card .value {
+    font-size: 2.4rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .card .unit { font-size: 0.9rem; color: #8b96a5; margin-left: 4px; }
+  .card.dc .value { color: #22d3ee; }
+  .card.ac .value { color: #fbbf24; }
+  .footer {
+    padding: 14px;
+    text-align: center;
+    font-size: 0.72rem;
+    color: #55606e;
+    background: #0f1419;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ef4444;
+    margin-right: 6px;
+    transition: background 0.3s;
+  }
+  .dot.online { background: #4ade80; }
+  .dot.offline { background: #ef4444; }
+</style>
+</head>
+<body>
+<div style="background:#422006;color:#fcd34d;text-align:center;font:12px sans-serif;padding:8px">PREVIEW LOCAL — valores simulados (firmware real em <code>firmware/Monitor_Energia_UPS/</code>) · <a href="config.html" style="color:#fff">abrir /config</a></div>
+<script>
+// Mock do endpoint /dados do ESP32 (demonstracao)
+let demoEnergia = true;
+let demoAC = 127.3, demoDC = 12.6, demoUptime = 4523;
+const _fetch = window.fetch.bind(window);
+window.fetch = async (url, opt) => {
+  if (String(url).includes('/dados')) {
+    demoUptime++;
+    demoAC += (Math.random()-0.5)*0.6;
+    demoDC += (Math.random()-0.5)*0.04;
+    return { ok: true, json: async () => ({ac: demoAC, dc: demoDC, energia: demoEnergia, uptime: demoUptime, wifi: -62, mqtt: true, ssid: 'MinhaRede'}) };
+  }
+  return _fetch(url, opt);
+};
+setInterval(()=>{ demoEnergia = !demoEnergia; }, 8000);
+</script>
+
+<div class="container">
+  <div class="header">
+    <a href="config.html" class="btn-config">⚙️ Config</a>
+    <h1>⚡ Monitor de Energia UPS</h1>
+    <p>ESP32 • INA219 • ZMPT101B</p>
+  </div>
+  <div id="status" class="status off">CARREGANDO...</div>
+  <div class="valores">
+    <div class="card dc">
+      <div class="label">Voltaje DC</div>
+      <div><span class="value" id="vdc">--.--</span><span class="unit">V</span></div>
+    </div>
+    <div class="card ac">
+      <div class="label">Voltaje AC</div>
+      <div><span class="value" id="vac">---.-</span><span class="unit">V</span></div>
+    </div>
+  </div>
+  <div class="footer">
+    <span><span id="dot" class="dot"></span><span id="conn">Conectando...</span></span>
+    <span id="uptime">--</span>
+  </div>
+</div>
+<script>
+let falhas = 0;
+function formatarUptime(s) {
+  const d = Math.floor(s/86400), h = Math.floor((s%86400)/3600);
+  const m = Math.floor((s%3600)/60), sec = s%60;
+  if (d>0) return `${d}d ${h}h ${m}m`;
+  if (h>0) return `${h}h ${m}m ${sec}s`;
+  if (m>0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+async function atualizar() {
+  try {
+    const resp = await fetch('/dados', { cache: 'no-store' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const d = await resp.json();
+    document.getElementById('vdc').textContent = Number(d.dc).toFixed(2);
+    document.getElementById('vac').textContent = Number(d.ac).toFixed(1);
+    const st = document.getElementById('status');
+    if (d.energia) {
+      st.textContent = '✓ ENERGIA OK';
+      st.className = 'status ok';
+    } else {
+      st.textContent = '⚠ ENERGIA OFF';
+      st.className = 'status off';
+    }
+    document.getElementById('dot').className = 'dot online';
+    document.getElementById('conn').textContent = 'Online • ' + d.wifi + ' dBm';
+    document.getElementById('uptime').textContent = 'Uptime: ' + formatarUptime(d.uptime);
+    falhas = 0;
+  } catch (e) {
+    falhas++;
+    if (falhas >= 3) {
+      document.getElementById('dot').className = 'dot offline';
+      document.getElementById('conn').textContent = 'Sem conexão';
+    }
+  }
+}
+atualizar();
+setInterval(atualizar, 1000);
+</script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+name: Compilar firmware
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compilar:
+    name: ESP32 (esp32:esp32:esp32)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar o repositório
+        uses: actions/checkout@v4
+
+      - name: Instalar o arduino-cli
+        uses: arduino/setup-arduino-cli@v1
+
+      - name: Instalar o core ESP32
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@2.0.17
+
+      - name: Instalar as bibliotecas
+        run: |
+          arduino-cli lib install "Adafruit INA219"
+          arduino-cli lib install "Adafruit GFX Library"
+          arduino-cli lib install "Adafruit ST7735 and ST7789 Library"
+          arduino-cli lib install PubSubClient
+          arduino-cli lib install WiFiManager
+
+      - name: Compilar
+        run: |
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32 \
+            --warnings more \
+            firmware/Monitor_Energia_UPS
